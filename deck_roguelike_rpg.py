@@ -1014,212 +1014,71 @@ def main():
         total_games = save_data.get("total_games", 0)
 
         # ========== タイトルバナー ==========
-        st.markdown("""
-        <div style="
-            text-align: center;
-            padding: 2.5rem 1rem 1.5rem;
-            position: relative;
-        ">
-            <div style="
-                font-size: 0.85rem;
-                letter-spacing: 0.4em;
-                color: rgba(255,200,80,0.8);
-                text-transform: uppercase;
-                margin-bottom: 0.5rem;
-                font-family: 'Courier New', monospace;
-            ">✦ ROGUELIKE CARD GAME ✦</div>
-            <div style="
-                font-size: 3.2rem;
-                font-weight: 900;
-                line-height: 1;
-                background: linear-gradient(135deg, #FFD700 0%, #FF8C00 40%, #FF4500 70%, #FFD700 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-                text-shadow: none;
-                filter: drop-shadow(0 0 20px rgba(255,160,0,0.5));
-                margin-bottom: 0.3rem;
-                font-family: 'Arial Black', sans-serif;
-            ">⚔️ 異界迷宮</div>
-            <div style="
-                font-size: 1.1rem;
-                color: rgba(255,255,255,0.6);
-                letter-spacing: 0.15em;
-                font-family: 'Courier New', monospace;
-            ">DECK BUILDER · DUNGEON CRAWLER</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("""<div style="text-align:center;padding:1.5rem 1rem 1rem;">
+<div style="font-size:0.8rem;letter-spacing:0.4em;color:#c8921f;font-family:monospace;">✦ ROGUELIKE CARD GAME ✦</div>
+<div style="font-size:3rem;font-weight:900;line-height:1.1;margin:0.3rem 0;color:#FFD700;text-shadow:0 0 30px #ff8c0088;">⚔️ 異界迷宮</div>
+<div style="font-size:0.95rem;color:#888;letter-spacing:0.15em;font-family:monospace;">DECK BUILDER · DUNGEON CRAWLER</div>
+</div>""", unsafe_allow_html=True)
 
         # ========== 実績バー ==========
         if total_games > 0:
-            st.markdown(f"""
-            <div style="
-                display: flex;
-                justify-content: center;
-                gap: 2rem;
-                padding: 0.8rem 1rem;
-                margin: 0 2rem 1.5rem;
-                background: rgba(255,255,255,0.04);
-                border: 1px solid rgba(255,200,80,0.2);
-                border-radius: 12px;
-                backdrop-filter: blur(10px);
-            ">
-                <div style="text-align:center;">
-                    <div style="font-size:1.6rem;font-weight:900;color:#FFD700;">{total_wins}</div>
-                    <div style="font-size:0.65rem;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">WINS</div>
-                </div>
-                <div style="width:1px;background:rgba(255,255,255,0.1);"></div>
-                <div style="text-align:center;">
-                    <div style="font-size:1.6rem;font-weight:900;color:#4ECDC4;">{highest_floor}</div>
-                    <div style="font-size:0.65rem;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">BEST FLOOR</div>
-                </div>
-                <div style="width:1px;background:rgba(255,255,255,0.1);"></div>
-                <div style="text-align:center;">
-                    <div style="font-size:1.6rem;font-weight:900;color:#FF6B6B;">{total_games}</div>
-                    <div style="font-size:0.65rem;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">PLAYS</div>
-                </div>
-                <div style="width:1px;background:rgba(255,255,255,0.1);"></div>
-                <div style="text-align:center;">
-                    <div style="font-size:1.6rem;font-weight:900;color:#95E77D;">💎{upgrade_points}</div>
-                    <div style="font-size:0.65rem;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">POINTS</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            with sc1:
+                st.metric("🏆 WINS", total_wins)
+            with sc2:
+                st.metric("🏰 BEST FLOOR", highest_floor)
+            with sc3:
+                st.metric("🎮 PLAYS", total_games)
+            with sc4:
+                st.metric("💎 POINTS", upgrade_points)
 
-        # ========== 遊び方カード ==========
-        st.markdown("""
-        <div style="margin: 0 0.5rem 1.5rem;">
-            <div style="
-                font-size: 0.7rem;
-                letter-spacing: 0.3em;
-                color: rgba(255,200,80,0.7);
-                text-align: center;
-                margin-bottom: 0.8rem;
-                text-transform: uppercase;
-            ">— 遊び方 —</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;">
+        # ========== 遊び方（シンプルなカード） ==========
+        st.markdown("#### 📖 遊び方")
+        c1, c2, c3 = st.columns(3)
+        cards_row1 = [
+            ("⚔️", "戦闘", "#FF6B6B",
+             "毎ターン**エネルギー**が回復。カードを使って敵を攻撃！ターン終了で敵が反撃する。"),
+            ("🎴", "デッキ強化", "#4ECDC4",
+             "勝利後に**カード獲得**。休憩所・ショップでもデッキを鍛えよう。"),
+            ("⚡", "元素反応", "#95E77D",
+             "炎＋水＝**蒸発**（+30）／炎＋草＝**燃焼**（持続）／水＋草＝**成長**（回復）"),
+        ]
+        cards_row2 = [
+            ("🗺️", "ルート選択", "#C084FC",
+             "各階層で**2択の分岐**。戦闘・休憩所・ショップを戦略的に選ぼう。"),
+            ("❤️", "HP管理", "#FFD700",
+             "HPは戦闘をまたいで**引き継がれる**。防御カードも積極的に使おう！"),
+            ("🔼", "永続強化", "#60CDFF",
+             "ゲームオーバーでも**アップグレードは残る**。周回して強くなろう！"),
+        ]
+        for col, (icon, title, color, body) in zip([c1, c2, c3], cards_row1):
+            with col:
+                st.markdown(f"""<div style="background:rgba(20,22,35,0.85);border:1px solid {color}55;border-top:3px solid {color};border-radius:10px;padding:0.9rem 0.8rem;text-align:center;min-height:140px;">
+<div style="font-size:2rem;">{icon}</div>
+<div style="font-size:0.88rem;font-weight:800;color:{color};margin:0.3rem 0;">{title}</div>
+<div style="font-size:0.7rem;color:#ccc;line-height:1.55;">{body.replace("**","<b>").replace("**","</b>")}</div>
+</div>""", unsafe_allow_html=True)
 
-                <div style="
-                    background: linear-gradient(135deg,rgba(255,107,107,0.15),rgba(255,107,107,0.05));
-                    border: 1px solid rgba(255,107,107,0.35);
-                    border-radius: 12px;
-                    padding: 1rem 0.8rem;
-                    text-align: center;
-                ">
-                    <div style="font-size:2rem;margin-bottom:0.4rem;">⚔️</div>
-                    <div style="font-size:0.85rem;font-weight:700;color:#FF6B6B;margin-bottom:0.4rem;">戦闘</div>
-                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
-                        毎ターン <b style="color:#FFD700;">エネルギー</b> が回復。<br>
-                        カードを使って敵を攻撃！<br>
-                        ターン終了で敵が反撃する。
-                    </div>
-                </div>
-
-                <div style="
-                    background: linear-gradient(135deg,rgba(78,205,196,0.15),rgba(78,205,196,0.05));
-                    border: 1px solid rgba(78,205,196,0.35);
-                    border-radius: 12px;
-                    padding: 1rem 0.8rem;
-                    text-align: center;
-                ">
-                    <div style="font-size:2rem;margin-bottom:0.4rem;">🎴</div>
-                    <div style="font-size:0.85rem;font-weight:700;color:#4ECDC4;margin-bottom:0.4rem;">デッキ強化</div>
-                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
-                        勝利後に <b style="color:#FFD700;">カード獲得</b>。<br>
-                        休憩所・ショップでも<br>
-                        デッキを鍛えよう。
-                    </div>
-                </div>
-
-                <div style="
-                    background: linear-gradient(135deg,rgba(149,231,125,0.15),rgba(149,231,125,0.05));
-                    border: 1px solid rgba(149,231,125,0.35);
-                    border-radius: 12px;
-                    padding: 1rem 0.8rem;
-                    text-align: center;
-                ">
-                    <div style="font-size:2rem;margin-bottom:0.4rem;">⚡</div>
-                    <div style="font-size:0.85rem;font-weight:700;color:#95E77D;margin-bottom:0.4rem;">元素反応</div>
-                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
-                        炎＋水＝<b style="color:#4ECDC4;">蒸発</b>（+30)<br>
-                        炎＋草＝<b style="color:#FF6B6B;">燃焼</b>（持続）<br>
-                        水＋草＝<b style="color:#95E77D;">成長</b>（回復）
-                    </div>
-                </div>
-
-                <div style="
-                    background: linear-gradient(135deg,rgba(180,100,220,0.15),rgba(180,100,220,0.05));
-                    border: 1px solid rgba(180,100,220,0.35);
-                    border-radius: 12px;
-                    padding: 1rem 0.8rem;
-                    text-align: center;
-                ">
-                    <div style="font-size:2rem;margin-bottom:0.4rem;">🗺️</div>
-                    <div style="font-size:0.85rem;font-weight:700;color:#C084FC;margin-bottom:0.4rem;">ルート選択</div>
-                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
-                        各階層で <b style="color:#FFD700;">2択の分岐</b>。<br>
-                        戦闘・休憩所・ショップ<br>
-                        を戦略的に選ぼう。
-                    </div>
-                </div>
-
-                <div style="
-                    background: linear-gradient(135deg,rgba(255,200,80,0.15),rgba(255,200,80,0.05));
-                    border: 1px solid rgba(255,200,80,0.35);
-                    border-radius: 12px;
-                    padding: 1rem 0.8rem;
-                    text-align: center;
-                ">
-                    <div style="font-size:2rem;margin-bottom:0.4rem;">❤️</div>
-                    <div style="font-size:0.85rem;font-weight:700;color:#FFD700;margin-bottom:0.4rem;">HP管理</div>
-                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
-                        HPは戦闘をまたいで<br>
-                        <b style="color:#FF6B6B;">引き継がれる</b>。<br>
-                        防御カードも使おう！
-                    </div>
-                </div>
-
-                <div style="
-                    background: linear-gradient(135deg,rgba(100,180,255,0.15),rgba(100,180,255,0.05));
-                    border: 1px solid rgba(100,180,255,0.35);
-                    border-radius: 12px;
-                    padding: 1rem 0.8rem;
-                    text-align: center;
-                ">
-                    <div style="font-size:2rem;margin-bottom:0.4rem;">🔼</div>
-                    <div style="font-size:0.85rem;font-weight:700;color:#60CDFF;margin-bottom:0.4rem;">永続強化</div>
-                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
-                        ゲームオーバーでも<br>
-                        <b style="color:#FFD700;">アップグレードは残る</b>。<br>
-                        周回して強くなろう！
-                    </div>
-                </div>
-
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        c4, c5, c6 = st.columns(3)
+        for col, (icon, title, color, body) in zip([c4, c5, c6], cards_row2):
+            with col:
+                st.markdown(f"""<div style="background:rgba(20,22,35,0.85);border:1px solid {color}55;border-top:3px solid {color};border-radius:10px;padding:0.9rem 0.8rem;text-align:center;min-height:140px;">
+<div style="font-size:2rem;">{icon}</div>
+<div style="font-size:0.88rem;font-weight:800;color:{color};margin:0.3rem 0;">{title}</div>
+<div style="font-size:0.7rem;color:#ccc;line-height:1.55;">{body.replace("**","<b>").replace("**","</b>")}</div>
+</div>""", unsafe_allow_html=True)
 
         # ========== 攻略ポイント ==========
-        st.markdown("""
-        <div style="
-            margin: 0 0.5rem 1.2rem;
-            padding: 0.8rem 1rem;
-            background: linear-gradient(135deg,rgba(255,200,80,0.08),rgba(255,140,0,0.05));
-            border: 1px solid rgba(255,200,80,0.25);
-            border-left: 3px solid #FFD700;
-            border-radius: 8px;
-        ">
-            <div style="font-size:0.75rem;font-weight:700;color:#FFD700;margin-bottom:0.5rem;">💡 攻略のコツ</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem 1rem;">
-                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ 序盤は <b>防御カード</b> を優先してHPを温存</div>
-                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ 元素カードを揃えると <b>反応コンボ</b> が強力</div>
-                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ 不要カードは削除して <b>デッキを薄く</b> する</div>
-                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ 休憩所は <b>HP全回復</b> が最も安定した選択肢</div>
-                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ バフ中に <b>高コスト攻撃</b> を集中させると効率的</div>
-                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ ボスが近い階層では <b>ショップ</b> でHP回復を買おう</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("#### 💡 攻略のコツ")
+        tip1, tip2 = st.columns(2)
+        with tip1:
+            st.markdown("▶ 序盤は **防御カード** を優先してHPを温存")
+            st.markdown("▶ 不要カードは削除して **デッキを薄く** する")
+            st.markdown("▶ バフ中に **高コスト攻撃** を集中させると効率的")
+        with tip2:
+            st.markdown("▶ 元素カードを揃えると **反応コンボ** が強力")
+            st.markdown("▶ 休憩所は **HP全回復** が最も安定した選択肢")
+            st.markdown("▶ ボスが近い階層では **ショップ** でHP回復を買おう")
 
         col_start, col_upgrade = st.columns(2)
         
@@ -1480,50 +1339,20 @@ def main():
         """, unsafe_allow_html=True)
 
         # ===== プレイヤーステータスパネル =====
-        st.markdown(f"""
-        <div style="
-            margin: 0.8rem 0.5rem 1rem;
-            padding: 1rem 1.2rem;
-            background: linear-gradient(135deg,rgba(20,30,20,0.9),rgba(15,25,15,0.9));
-            border: 1px solid rgba(149,231,125,0.25);
-            border-radius: 14px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(149,231,125,0.1);
-        ">
-            <div style="font-size:0.65rem;letter-spacing:0.25em;color:rgba(149,231,125,0.6);margin-bottom:0.8rem;text-transform:uppercase;">
-                ▌ プレイヤーステータス
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.8rem;align-items:center;">
-
-                <div>
-                    <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);margin-bottom:0.2rem;">❤️ HP</div>
-                    <div style="font-size:1.3rem;font-weight:900;color:{hp_color};">{hp}</div>
-                    <div style="font-size:0.6rem;color:rgba(255,255,255,0.4);">/ {max_hp}</div>
-                    <div style="margin-top:0.3rem;height:5px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden;">
-                        <div style="width:{hp_pct}%;height:100%;background:{hp_color};border-radius:3px;
-                            box-shadow:0 0 8px {hp_color};transition:width 0.5s;"></div>
-                    </div>
-                </div>
-
-                <div>
-                    <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);margin-bottom:0.2rem;">⚡ エネルギー</div>
-                    <div style="font-size:1.3rem;font-weight:900;color:#6ECDC4;">{energy}</div>
-                    <div style="font-size:0.6rem;color:rgba(255,255,255,0.4);">/ {max_energy}</div>
-                </div>
-
-                <div>
-                    <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);margin-bottom:0.2rem;">🎴 デッキ</div>
-                    <div style="font-size:1.3rem;font-weight:900;color:#C084FC;">{deck_size}<span style="font-size:0.7rem;font-weight:400;color:rgba(255,255,255,0.4);"> 枚</span></div>
-                </div>
-
-                <div>
-                    <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);margin-bottom:0.2rem;">💰 ゴールド</div>
-                    <div style="font-size:1.3rem;font-weight:900;color:#FFD700;">{gold}<span style="font-size:0.7rem;font-weight:400;color:rgba(255,255,255,0.4);"> G</span></div>
-                </div>
-
-            </div>
-            {"<div style='margin-top:0.8rem;padding:0.5rem 0.7rem;background:rgba(255,200,80,0.1);border:1px solid rgba(255,200,80,0.3);border-radius:8px;font-size:0.7rem;color:#FFD700;'>💪 瞑想バフ待機中: 次の戦闘中ずっと攻撃力+"+str(int(rest_buff*100))+"%</div>" if rest_buff > 0 else ""}
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("##### 📊 現在のステータス")
+        rs1, rs2, rs3, rs4 = st.columns(4)
+        with rs1:
+            st.metric("❤️ HP", f"{hp} / {max_hp}")
+            # HPバー
+            st.progress(hp_pct / 100)
+        with rs2:
+            st.metric("⚡ エネルギー", f"{energy} / {max_energy}")
+        with rs3:
+            st.metric("🎴 デッキ", f"{deck_size} 枚")
+        with rs4:
+            st.metric("💰 ゴールド", f"{gold} G")
+        if rest_buff > 0:
+            st.info(f"💪 瞑想バフ待機中: 次の戦闘中ずっと攻撃力+{int(rest_buff*100)}%")
 
         # ===== 選択カード 3択 =====
         st.markdown("""
@@ -1537,52 +1366,24 @@ def main():
         with col1:
             hp_after = min(max_hp, hp + int(max_hp * 0.4))
             heal_amt = hp_after - hp
-            st.markdown(f"""
-            <div style="
-                background: linear-gradient(135deg,rgba(248,113,113,0.15),rgba(220,38,38,0.08));
-                border: 2px solid rgba(248,113,113,0.4);
-                border-radius: 14px;
-                padding: 1.2rem 0.8rem;
-                text-align: center;
-                margin-bottom: 0.5rem;
-                min-height: 160px;
-            ">
-                <div style="font-size:2.5rem;margin-bottom:0.5rem;">😴</div>
-                <div style="font-size:1rem;font-weight:800;color:#f87171;margin-bottom:0.3rem;">就寝</div>
-                <div style="font-size:0.7rem;color:rgba(255,255,255,0.6);line-height:1.5;margin-bottom:0.5rem;">
-                    HP を全回復する<br>
-                    <span style="color:#4ade80;font-weight:700;">+{heal_amt} HP回復</span><br>
-                    <span style="font-size:0.6rem;color:rgba(255,255,255,0.4);">{hp} → {hp_after} / {max_hp}</span>
-                </div>
-                <div style="font-size:0.6rem;color:rgba(255,255,255,0.35);">永続効果なし</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div style="background:#141e14;border:2px solid #f87171;border-top:3px solid #f87171;border-radius:12px;padding:1rem 0.8rem;text-align:center;min-height:150px;">
+<div style="font-size:2.2rem;">😴</div>
+<div style="font-size:1rem;font-weight:800;color:#f87171;margin:0.3rem 0;">就寝</div>
+<div style="font-size:0.72rem;color:#ccc;line-height:1.6;">HP を全回復する<br><b style="color:#4ade80;">+{heal_amt} HP回復</b><br><span style="font-size:0.62rem;color:#888;">{hp} → {hp_after} / {max_hp}</span></div>
+<div style="font-size:0.62rem;color:#666;margin-top:0.4rem;">永続効果なし</div>
+</div>""", unsafe_allow_html=True)
             if st.button("😴 就寝して回復", key="rest_sleep", use_container_width=True, type="primary"):
                 st.session_state.player_hp = st.session_state.player_max_hp
                 proceed_to_next_floor()
                 st.rerun()
 
         with col2:
-            st.markdown(f"""
-            <div style="
-                background: linear-gradient(135deg,rgba(192,132,252,0.15),rgba(147,51,234,0.08));
-                border: 2px solid rgba(192,132,252,0.4);
-                border-radius: 14px;
-                padding: 1.2rem 0.8rem;
-                text-align: center;
-                margin-bottom: 0.5rem;
-                min-height: 160px;
-            ">
-                <div style="font-size:2.5rem;margin-bottom:0.5rem;">🧘</div>
-                <div style="font-size:1rem;font-weight:800;color:#C084FC;margin-bottom:0.3rem;">瞑想</div>
-                <div style="font-size:0.7rem;color:rgba(255,255,255,0.6);line-height:1.5;margin-bottom:0.5rem;">
-                    次の1戦、攻撃力アップ<br>
-                    <span style="color:#C084FC;font-weight:700;">攻撃力 +20%</span><br>
-                    <span style="font-size:0.6rem;color:rgba(255,255,255,0.4);">戦闘中ずっと有効</span>
-                </div>
-                <div style="font-size:0.6rem;color:rgba(255,200,80,0.6);">⚠️ 次の1戦のみ</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div style="background:#1a1427;border:2px solid #C084FC;border-top:3px solid #C084FC;border-radius:12px;padding:1rem 0.8rem;text-align:center;min-height:150px;">
+<div style="font-size:2.2rem;">🧘</div>
+<div style="font-size:1rem;font-weight:800;color:#C084FC;margin:0.3rem 0;">瞑想</div>
+<div style="font-size:0.72rem;color:#ccc;line-height:1.6;">次の1戦、攻撃力アップ<br><b style="color:#C084FC;">攻撃力 +20%</b><br><span style="font-size:0.62rem;color:#888;">戦闘中ずっと有効</span></div>
+<div style="font-size:0.62rem;color:#c8921f;margin-top:0.4rem;">⚠️ 次の1戦のみ</div>
+</div>""", unsafe_allow_html=True)
             if st.button("🧘 瞑想する", key="rest_meditate", use_container_width=True, type="primary"):
                 st.session_state.rest_attack_buff = max(st.session_state.get('rest_attack_buff', 0), 0.2)
                 proceed_to_next_floor()
@@ -1590,26 +1391,12 @@ def main():
 
         with col3:
             attack_cards = [c for c in st.session_state.all_cards if c.get('type') == CARD_ATTACK and 'damage' in c]
-            st.markdown(f"""
-            <div style="
-                background: linear-gradient(135deg,rgba(251,191,36,0.15),rgba(180,130,0,0.08));
-                border: 2px solid rgba(251,191,36,0.4);
-                border-radius: 14px;
-                padding: 1.2rem 0.8rem;
-                text-align: center;
-                margin-bottom: 0.5rem;
-                min-height: 160px;
-            ">
-                <div style="font-size:2.5rem;margin-bottom:0.5rem;">🧪</div>
-                <div style="font-size:1rem;font-weight:800;color:#fbbf24;margin-bottom:0.3rem;">錬金術</div>
-                <div style="font-size:0.7rem;color:rgba(255,255,255,0.6);line-height:1.5;margin-bottom:0.5rem;">
-                    全攻撃カードを強化する<br>
-                    <span style="color:#fbbf24;font-weight:700;">攻撃力 +10%</span><br>
-                    <span style="font-size:0.6rem;color:rgba(255,255,255,0.4);">対象: {len(attack_cards)}枚</span>
-                </div>
-                <div style="font-size:0.6rem;color:#4ade80;">✅ 永続効果</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div style="background:#1a1800;border:2px solid #fbbf24;border-top:3px solid #fbbf24;border-radius:12px;padding:1rem 0.8rem;text-align:center;min-height:150px;">
+<div style="font-size:2.2rem;">🧪</div>
+<div style="font-size:1rem;font-weight:800;color:#fbbf24;margin:0.3rem 0;">錬金術</div>
+<div style="font-size:0.72rem;color:#ccc;line-height:1.6;">全攻撃カードを強化する<br><b style="color:#fbbf24;">攻撃力 +10%</b><br><span style="font-size:0.62rem;color:#888;">対象: {len(attack_cards)}枚</span></div>
+<div style="font-size:0.62rem;color:#4ade80;margin-top:0.4rem;">✅ 永続効果</div>
+</div>""", unsafe_allow_html=True)
             if st.button("🧪 錬金術を使う", key="rest_alchemy", use_container_width=True, type="primary"):
                 for card in st.session_state.all_cards:
                     if card.get('type') == CARD_ATTACK and 'damage' in card:
