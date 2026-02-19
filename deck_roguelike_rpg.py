@@ -43,6 +43,14 @@ CARD_TYPE_ICONS = {
     CARD_DRAW: "🎴",
 }
 
+# デバフタイプのアイコン
+DEBUFF_TYPE_ICONS = {
+    "weaken": "⬇️",
+    "stun": "💫",
+    "poison": "☠️",
+    "freeze": "❄️",
+}
+
 # ===== カードデータベース =====
 
 def create_basic_cards() -> List[dict]:
@@ -73,7 +81,14 @@ def create_basic_cards() -> List[dict]:
         {"name": "策略", "type": CARD_DRAW, "cost": 2, "element": ELEMENT_NONE, "draw_count": 2, "description": "カード2枚ドロー"},
         {"name": "大量ドロー", "type": CARD_DRAW, "cost": 3, "element": ELEMENT_NONE, "draw_count": 3, "description": "カード3枚ドロー"},
         
-        # 複合カード（新追加 - より戦略的なプレイを支援）
+        # デバフカード（敵を弱体化）
+        {"name": "威圧", "type": CARD_DEBUFF, "cost": 1, "element": ELEMENT_NONE, "debuff_type": "weaken", "debuff_value": 0.25, "debuff_duration": 2, "description": "敵の攻撃力-25% 2ターン"},
+        {"name": "束縛", "type": CARD_DEBUFF, "cost": 2, "element": ELEMENT_NONE, "debuff_type": "stun", "debuff_value": 1, "debuff_duration": 1, "description": "敵を1ターン行動不能にする"},
+        {"name": "毒霧", "type": CARD_DEBUFF, "cost": 2, "element": ELEMENT_NATURE, "debuff_type": "poison", "debuff_value": 8, "debuff_duration": 4, "description": "毒: 4ターン間毎ターン8ダメージ + 草付与"},
+        {"name": "呪縛", "type": CARD_DEBUFF, "cost": 3, "element": ELEMENT_NONE, "debuff_type": "weaken", "debuff_value": 0.5, "debuff_duration": 3, "description": "敵の攻撃力-50% 3ターン"},
+        {"name": "氷結", "type": CARD_DEBUFF, "cost": 2, "element": ELEMENT_WATER, "debuff_type": "freeze", "debuff_value": 0.3, "debuff_duration": 2, "description": "敵の攻撃力-30% 2ターン + 水付与"},
+
+        # 複合カード
         {"name": "連撃", "type": CARD_ATTACK, "cost": 2, "element": ELEMENT_NONE, "damage": 15, "draw_count": 1, "description": "ダメージ15 + カード1枚ドロー"},
         {"name": "防壁術", "type": CARD_DEFEND, "cost": 1, "element": ELEMENT_NONE, "shield": 12, "buff_value": 0.1, "buff_duration": 1, "description": "シールド12 + 攻撃+10% 1ターン"},
         {"name": "魔力強化", "type": CARD_BUFF, "cost": 2, "element": ELEMENT_NONE, "buff_value": 0.25, "buff_duration": 2, "draw_count": 1, "description": "攻撃+25% 2ターン + ドロー1枚"},
@@ -144,16 +159,25 @@ def draw_cards(count: int):
 
 def play_card(card_index: int):
     """カードをプレイする"""
-    card = st.session_state.hand[card_index]
-    
-    # コストチェック
-    if st.session_state.energy < card.get("cost", 0):
-        st.session_state.battle_log.append("❌ エネルギーが足りません！")
+    # インデックス範囲チェック（rerun後に手札が変わっている場合の防御）
+    if card_index >= len(st.session_state.hand):
         return
-    
-    # コスト消費
+
+    card = st.session_state.hand[card_index]
     cost = card.get("cost", 0)
+
+    # エネルギー上限を強制（念のためクランプ）
+    st.session_state.energy = min(st.session_state.energy, st.session_state.max_energy)
+
+    # コストチェック（描画タイミングズレによる二重消費・不正使用を防ぐ）
+    if st.session_state.energy < cost:
+        st.session_state.battle_log.append(f"❌ エネルギー不足！（必要: {cost}, 残り: {st.session_state.energy}）")
+        return
+
+    # コスト消費
     st.session_state.energy -= cost
+    # 念のため下限クランプ
+    st.session_state.energy = max(0, st.session_state.energy)
     
     # エネルギー消費エフェクトを設定
     st.session_state.energy_effect = {
@@ -275,6 +299,12 @@ def play_card(card_index: int):
         elif shield_blocked > 0:
             # ダメージが0でもシールドでブロックした場合は表示済み
             pass
+
+        # Bug2修正: 攻撃カードの複合ドロー効果（連撃など）
+        if card.get("draw_count"):
+            draw_count = card.get("draw_count", 0)
+            draw_cards(draw_count)
+            st.session_state.battle_log.append(f"📥 {draw_count}枚追加ドロー！（手札: {len(st.session_state.hand)}枚）")
     
     elif card_type == CARD_DEFEND:
         shield_amount = card.get("shield", 0)
@@ -282,24 +312,110 @@ def play_card(card_index: int):
         st.session_state.battle_log.append(f"🛡️ シールド{shield_amount}獲得！（現在: {st.session_state.shield}）")
         # 複合効果：防御+バフ（防壁術など）
         if card.get("buff_value"):
-            st.session_state.attack_buff = card.get("buff_value", 0)
-            st.session_state.attack_buff_duration = card.get("buff_duration", 1)
-            st.session_state.battle_log.append(f"💪 さらに攻撃力+{int(card.get('buff_value', 0)*100)}% {card.get('buff_duration', 1)}ターン！")
-    
+            new_buff = card.get("buff_value", 0)
+            new_dur = card.get("buff_duration", 1)
+            # バフは加算（上書きではなく最大値を採用し残りターンも延長）
+            st.session_state.attack_buff = max(st.session_state.attack_buff, new_buff)
+            st.session_state.attack_buff_duration = max(st.session_state.attack_buff_duration, new_dur)
+            st.session_state.battle_log.append(f"💪 さらに攻撃力+{int(new_buff*100)}% {new_dur}ターン！")
+
     elif card_type == CARD_BUFF:
-        st.session_state.attack_buff = card.get("buff_value", 0)
-        st.session_state.attack_buff_duration = card.get("buff_duration", 0)
-        st.session_state.battle_log.append(f"💪 攻撃力+{int(card.get('buff_value', 0)*100)}% {card.get('buff_duration', 0)}ターン！")
+        new_buff = card.get("buff_value", 0)
+        new_dur = card.get("buff_duration", 0)
+        # バフは加算（既存バフより強ければ上書き、残りターンも延長）
+        st.session_state.attack_buff = max(st.session_state.attack_buff, new_buff)
+        st.session_state.attack_buff_duration = max(st.session_state.attack_buff_duration, new_dur)
+        st.session_state.battle_log.append(f"💪 攻撃力+{int(new_buff*100)}% {new_dur}ターン！（現在: +{int(st.session_state.attack_buff*100)}%）")
         # 複合効果：バフ+ドロー（魔力強化など）
         if card.get("draw_count"):
             draw_count = card.get("draw_count", 0)
             draw_cards(draw_count)
             st.session_state.battle_log.append(f"📥 カード{draw_count}枚追加ドロー！（手札: {len(st.session_state.hand)}枚）")
-    
+
+    elif card_type == CARD_DEBUFF:
+        debuff_type = card.get("debuff_type", "")
+        debuff_value = card.get("debuff_value", 0)
+        debuff_duration = card.get("debuff_duration", 1)
+
+        if debuff_type == "weaken":
+            # 弱体化: 敵の攻撃力を一時的に下げる
+            if "debuff_weaken" not in st.session_state.enemy:
+                st.session_state.enemy["debuff_weaken"] = 0
+                st.session_state.enemy["debuff_weaken_duration"] = 0
+            # 既存より強い弱体化のみ適用
+            st.session_state.enemy["debuff_weaken"] = max(st.session_state.enemy.get("debuff_weaken", 0), debuff_value)
+            st.session_state.enemy["debuff_weaken_duration"] = max(
+                st.session_state.enemy.get("debuff_weaken_duration", 0), debuff_duration
+            )
+            st.session_state.battle_log.append(
+                f"💀 敵に弱体化付与！ 攻撃力-{int(debuff_value*100)}% {debuff_duration}ターン"
+            )
+        elif debuff_type == "stun":
+            # スタン: 次のターン行動不能
+            st.session_state.enemy["stunned"] = True
+            st.session_state.battle_log.append("💀 敵をスタン！ 次のターン行動不能")
+        elif debuff_type == "poison":
+            # 毒: 毎ターンダメージ（燃焼とは別管理）
+            st.session_state.enemy["poison"] = debuff_value
+            st.session_state.enemy["poison_duration"] = debuff_duration
+            st.session_state.battle_log.append(
+                f"☠️ 毒付与！ {debuff_duration}ターン間毎ターン{debuff_value}ダメージ"
+            )
+            # 草属性付与
+            element = card.get("element", ELEMENT_NONE)
+            if element != ELEMENT_NONE and st.session_state.element_reaction_cooldown == 0:
+                st.session_state.enemy["element"] = element
+                st.session_state.enemy["element_duration"] = 2
+                st.session_state.battle_log.append(f"🌿 敵に草を付与！")
+        elif debuff_type == "freeze":
+            # 氷結: 攻撃力低下 + 水属性付与
+            st.session_state.enemy["debuff_weaken"] = max(st.session_state.enemy.get("debuff_weaken", 0), debuff_value)
+            st.session_state.enemy["debuff_weaken_duration"] = max(
+                st.session_state.enemy.get("debuff_weaken_duration", 0), debuff_duration
+            )
+            st.session_state.battle_log.append(
+                f"❄️ 氷結付与！ 攻撃力-{int(debuff_value*100)}% {debuff_duration}ターン"
+            )
+            element = card.get("element", ELEMENT_NONE)
+            if element != ELEMENT_NONE and st.session_state.element_reaction_cooldown == 0:
+                st.session_state.enemy["element"] = element
+                st.session_state.enemy["element_duration"] = 2
+                st.session_state.battle_log.append(f"💧 敵に水を付与！")
+
     elif card_type == CARD_DRAW:
         draw_count = card.get("draw_count", 0)
         draw_cards(draw_count)
         st.session_state.battle_log.append(f"📥 カード{draw_count}枚ドロー！（手札: {len(st.session_state.hand)}枚）")
+        # Bug3修正: ドローカードの複合ダメージ効果（急速成長など）
+        if card.get("damage"):
+            base_damage = card.get("damage", 0)
+            total_damage = base_damage
+            if st.session_state.attack_buff_duration > 0:
+                total_damage = int(total_damage * (1 + st.session_state.attack_buff))
+            element = card.get("element", ELEMENT_NONE)
+            reaction_occurred, reaction_msg, reaction_damage, reaction_type = check_element_reaction(
+                st.session_state.enemy["element"], element
+            )
+            if reaction_occurred:
+                st.session_state.battle_log.append(reaction_msg)
+                total_damage += reaction_damage
+                st.session_state.enemy["element"] = None
+                st.session_state.enemy["element_duration"] = 0
+                st.session_state.element_reaction_cooldown = 1
+            elif element != ELEMENT_NONE and st.session_state.element_reaction_cooldown == 0:
+                st.session_state.enemy["element"] = element
+                st.session_state.enemy["element_duration"] = 2
+            # ダメージ適用
+            remaining = total_damage
+            if st.session_state.enemy["shield"] > 0:
+                blocked = min(st.session_state.enemy["shield"], total_damage)
+                st.session_state.enemy["shield"] -= blocked
+                remaining = total_damage - blocked
+            st.session_state.enemy["hp"] = max(0, st.session_state.enemy["hp"] - remaining)
+            if remaining > 0:
+                st.session_state.battle_log.append(
+                    f"⚔️ {remaining}ダメージ！ → 残りHP: {st.session_state.enemy['hp']}/{st.session_state.enemy['max_hp']}"
+                )
     
     # カードを捨て札へ
     st.session_state.hand.pop(card_index)
@@ -308,33 +424,67 @@ def play_card(card_index: int):
 def enemy_turn():
     """敵のターン"""
     st.session_state.battle_log.append("--- 👾 敵のターン ---")
-    
+
+    # 毒ダメージ処理
+    if st.session_state.enemy.get("poison_duration", 0) > 0:
+        poison_dmg = st.session_state.enemy.get("poison", 0)
+        st.session_state.enemy["hp"] -= poison_dmg
+        if st.session_state.enemy["hp"] < 0:
+            st.session_state.enemy["hp"] = 0
+        st.session_state.battle_log.append(
+            f"☠️ 毒ダメージ！ {poison_dmg}ダメージ (残り{st.session_state.enemy['poison_duration']}ターン)"
+        )
+        st.session_state.enemy["poison_duration"] -= 1
+        if st.session_state.enemy["hp"] <= 0:
+            st.session_state.shield = 0
+            return
+
     # 敵が生きている場合のみ行動
     if st.session_state.enemy["hp"] > 0:
-        action = st.session_state.enemy["next_action"]
-        desc, icon = get_action_description(action)
-        
-        if action == "attack":
-            # 通常攻撃
-            damage = st.session_state.enemy["attack"]
-            st.session_state.battle_log.append(f"{icon} 敵の{desc}！")
-            apply_damage_to_player(damage)
-            
-        elif action == "big_attack":
-            # 強攻撃（1.5倍）
-            damage = int(st.session_state.enemy["attack"] * 1.5)
-            st.session_state.battle_log.append(f"{icon} 敵の{desc}！")
-            apply_damage_to_player(damage)
-            
-        elif action == "defend":
-            # 防御態勢（シールドを獲得）
-            shield_amount = int(st.session_state.enemy["attack"] * 1.2)  # 攻撃力の1.2倍のシールド
-            st.session_state.enemy["shield"] += shield_amount
-            st.session_state.battle_log.append(f"{icon} 敵は{desc}を取った！ シールド+{shield_amount} (現在: {st.session_state.enemy['shield']})")
-        
+        # スタン中は行動スキップ
+        if st.session_state.enemy.get("stunned", False):
+            st.session_state.battle_log.append("💫 敵はスタン中！ 行動できない")
+            st.session_state.enemy["stunned"] = False
+        else:
+            action = st.session_state.enemy["next_action"]
+            desc, icon = get_action_description(action)
+
+            # 弱体化による攻撃力補正
+            base_attack = st.session_state.enemy["attack"]
+            weaken = st.session_state.enemy.get("debuff_weaken", 0)
+            effective_attack = int(base_attack * (1 - weaken))
+
+            if action == "attack":
+                damage = effective_attack
+                st.session_state.battle_log.append(f"{icon} 敵の{desc}！")
+                if weaken > 0:
+                    st.session_state.battle_log.append(f"⬇️ 弱体化中 (-{int(weaken*100)}%): {base_attack} → {effective_attack}")
+                apply_damage_to_player(damage)
+
+            elif action == "big_attack":
+                damage = int(effective_attack * 1.5)
+                st.session_state.battle_log.append(f"{icon} 敵の{desc}！")
+                if weaken > 0:
+                    st.session_state.battle_log.append(f"⬇️ 弱体化中 (-{int(weaken*100)}%): {int(base_attack*1.5)} → {damage}")
+                apply_damage_to_player(damage)
+
+            elif action == "defend":
+                shield_amount = int(effective_attack * 1.2)
+                st.session_state.enemy["shield"] += shield_amount
+                st.session_state.battle_log.append(
+                    f"{icon} 敵は{desc}を取った！ シールド+{shield_amount} (現在: {st.session_state.enemy['shield']})"
+                )
+
+        # 弱体化のターン経過
+        if st.session_state.enemy.get("debuff_weaken_duration", 0) > 0:
+            st.session_state.enemy["debuff_weaken_duration"] -= 1
+            if st.session_state.enemy["debuff_weaken_duration"] == 0:
+                st.session_state.enemy["debuff_weaken"] = 0
+                st.session_state.battle_log.append("✅ 敵の弱体化が解除された")
+
         # 次の行動を決定
         decide_enemy_action()
-    
+
     # プレイヤーのシールドをリセット
     st.session_state.shield = 0
 
@@ -376,51 +526,60 @@ def start_turn():
         if st.session_state.enemy["hp"] < 0:
             st.session_state.enemy["hp"] = 0
         st.session_state.battle_log.append(f"🔥 燃焼ダメージ！ {burn_damage}ダメージ (残り{st.session_state.enemy['burn_duration']}ターン)")
-        
+
         # 燃焼ダメージエフェクトを表示
         st.session_state.damage_effect = {
             "type": "enemy",
             "amount": burn_damage,
-            "color": "#ff4444",  # 炎の赤
+            "color": "#ff4444",
             "reaction": "🔥燃焼"
         }
         st.session_state.show_effect = True
-        
+
         st.session_state.enemy["burn_duration"] -= 1
-    
+
     # エネルギー回復
     st.session_state.energy = st.session_state.max_energy
-    
-    # バフ期間減少
-    if st.session_state.attack_buff_duration > 0:
+
+    # バフ期間減少（999=休憩所バフ=戦闘中ずっと有効→減らさない）
+    if 0 < st.session_state.attack_buff_duration < 999:
         st.session_state.attack_buff_duration -= 1
         if st.session_state.attack_buff_duration == 0:
             st.session_state.attack_buff = 0
-    
+
     # 元素期間減少（敵ごと、敵オブジェクト内で管理）
-    if st.session_state.enemy["element_duration"] > 0:
+    if st.session_state.enemy.get("element_duration", 0) > 0:
         st.session_state.enemy["element_duration"] -= 1
         if st.session_state.enemy["element_duration"] == 0:
             st.session_state.enemy["element"] = None
-    
+
     # 元素反応クールダウン減少
     if hasattr(st.session_state, 'element_reaction_cooldown') and st.session_state.element_reaction_cooldown > 0:
         st.session_state.element_reaction_cooldown -= 1
-    
-    # 毎ターン5枚ドロー（手札は前ターンで全破棄されている）
-    draw_cards(5)
+
+    # アップグレードによるドロー枚数ボーナスを適用
+    draw_bonus = 0
+    if hasattr(st.session_state, 'persistent_data'):
+        draw_bonus = game_data.get_total_effect(st.session_state.persistent_data, "card_draw_bonus")
+    draw_cards(5 + draw_bonus)
 
 # ===== エネルギー表示関数 =====
 
 def render_energy_bars(current_energy: int, max_energy: int) -> str:
     """
-    エネルギーを5つのバーで表示（洗練されたUI）
+    エネルギーをmax_energy個のバーで表示
     各バーには⚡マークを表示
     """
-    html = '<div style="width: 100%; display: flex; gap: 5px; align-items: center; margin-top: 6px; padding: 2px 0;">'
-    
-    # 5つのバーを等幅で描画
-    for i in range(5):
+    # 安全クランプ
+    max_energy = max(1, int(max_energy))
+    current_energy = max(0, min(int(current_energy), max_energy))
+
+    html = f'<div style="width: 100%; margin-top: 4px; padding: 2px 0;">'
+    html += f'<div style="font-size:0.7rem; color:rgba(255,255,255,0.7); margin-bottom:2px;">⚡ {current_energy}/{max_energy}</div>'
+    html += '<div style="display: flex; gap: 3px; align-items: center;">'
+
+    # max_energy個のバーを描画（最大10個まで）
+    for i in range(min(max_energy, 10)):
         # バーi（0-4）が現在のエネルギー値より小さい場合は色、大きい場合は黒
         if i < current_energy:
             # 色（残りエネルギー）- グラデーション効果
@@ -456,6 +615,7 @@ def render_energy_bars(current_energy: int, max_energy: int) -> str:
         html += bar_html
     
     html += '</div>'
+    html += '</div>'  # 外側div閉じる
     
     return html
 
@@ -531,11 +691,17 @@ def create_enemy_data(name: str, difficulty: int) -> dict:
         "hp": int(hp_base),
         "attack": int(attack_base),
         "shield": 0,
-        "element": None,           # 敵に付与された元素
-        "element_duration": 0,     # 元素の持続ターン数
-        "burn": 0,                 # 燃焼ダメージ
-        "burn_duration": 0,        # 燃焼の持続ターン数
-        "next_action": "attack"    # 敵の次のアクション
+        "element": None,
+        "element_duration": 0,
+        "burn": 0,
+        "burn_duration": 0,
+        "next_action": "attack",
+        # デバフフィールド
+        "debuff_weaken": 0,
+        "debuff_weaken_duration": 0,
+        "stunned": False,
+        "poison": 0,
+        "poison_duration": 0,
     }
 
 
@@ -543,64 +709,72 @@ def setup_battle_from_node(node):
     """ツリーのノードから戦闘をセットアップ"""
     if node.node_type != "battle":
         return  # 戦闘ノード以外はスキップ
-    
+
     # 敵データを構造化して保存
     st.session_state.enemy = create_enemy_data(node.enemy_name, node.difficulty)
-    
+
     # 敵の次の行動を決定
     decide_enemy_action()
-    
-    # 状態をリセット
+
+    # プレイヤー状態をリセット（前の戦闘の残りをクリア）
     st.session_state.shield = 0
-    st.session_state.attack_buff = 0
-    st.session_state.attack_buff_duration = 0
     st.session_state.element_reaction_cooldown = 0
-    
+
+    # 休憩所バフ（次の1戦限り）の引き継ぎ
+    rest_buff = st.session_state.get('rest_attack_buff', 0)
+    if rest_buff > 0:
+        # 次の戦闘に持ち込む（戦闘中は全ターン有効: duration=999）
+        st.session_state.attack_buff = rest_buff
+        st.session_state.attack_buff_duration = 999  # 戦闘終了まで有効
+        st.session_state.rest_attack_buff = 0  # 使い切り
+    else:
+        st.session_state.attack_buff = 0
+        st.session_state.attack_buff_duration = 0
+
     # デッキをリセット
     st.session_state.deck = st.session_state.all_cards.copy()
     st.session_state.hand = []
     st.session_state.discard = []
     random.shuffle(st.session_state.deck)
-    
-    # ターン進行
+
+    # ターン進行 & 現在階層を正しく設定
     st.session_state.turn += 1
+    st.session_state.current_floor = node.floor_level
     st.session_state.energy = st.session_state.max_energy
-    
-    # 手札をドロー
-    draw_cards(5)
+
+    # アップグレードによるドロー枚数ボーナスを適用
+    draw_bonus = 0
+    if hasattr(st.session_state, 'persistent_data'):
+        draw_bonus = game_data.get_total_effect(st.session_state.persistent_data, "card_draw_bonus")
+    draw_cards(5 + draw_bonus)
+
     st.session_state.battle_log = [f"⚔️ 第{st.session_state.turn}戦: {st.session_state.enemy['name']}との戦闘開始！"]
     st.session_state.current_turn_log = []
 
 
 def proceed_to_next_floor():
     """次の階層を選択する画面へ進む"""
-    # 現在のノードの子ノードを確認
     nodes = st.session_state.floor_nodes
     current_node_id = st.session_state.current_node_id
     current_node = nodes[current_node_id]
-    
-    print(f"\n[DEBUG] ===== proceed_to_next_floor =====")
-    print(f"[DEBUG] Current: {current_node_id} (Floor {current_node.floor_level})")
-    
+
+    # Bug4修正: 報酬関連の状態を確実にリセット
+    st.session_state.reward_choice = None
+    st.session_state.cards_to_delete = []
+    if 'reward_cards_cache' in st.session_state:
+        del st.session_state.reward_cards_cache
+
     left_child, right_child = floor_tree.get_node_children(nodes, current_node_id)
-    
-    print(f"[DEBUG] Left child: {left_child.node_id if left_child else 'None'}")
-    print(f"[DEBUG] Right child: {right_child.node_id if right_child else 'None'}")
-    
+
     # 子ノードが1つもない場合（ゲーム終了）
     if not left_child and not right_child:
-        print(f"[DEBUG] -> No children")
-        # 10階層クリア判定
         if current_node.floor_level == 10:
-            print(f"[DEBUG] -> Setting state to 'clear' (game won!)")
             st.session_state.game_state = 'clear'
         else:
-            print(f"[DEBUG] -> Setting state to 'victory'")
             st.session_state.game_state = 'victory'
         return
-    
+
     # それ以外の場合は常にマップ選択画面を表示
-    print(f"[DEBUG] -> Showing tree_selection (map screen)")
     st.session_state.game_state = 'tree_selection'
     return
 
@@ -829,41 +1003,228 @@ def main():
         st.session_state.current_turn_log = []
     
     if st.session_state.game_state == 'menu':
-        st.title("⚔️ デッキ構築ローグライクRPG")
-        
         # セーブデータを読み込み
         if 'persistent_data' not in st.session_state:
             st.session_state.persistent_data = game_data.load_game_data()
-        
+
         save_data = st.session_state.persistent_data
-        
-        st.write("## ようこそ！")
-        st.write("デッキを構築し、敵を倒していくローグライクRPGです。")
-        
-        # 統計表示
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("総勝利数", save_data.get("total_wins", 0))
-        with col2:
-            st.metric("最高到達階層", save_data.get("highest_floor", 0))
-        with col3:
-            st.metric("アップグレードポイント", save_data.get("upgrade_points", 0), help="ゲームをプレイして獲得")
-        
-        st.write("### ゲームの特徴")
-        st.write("- 🎴 **デッキ構築**: 戦闘後に新しいカードを獲得")
-        st.write("- ⚡ **元素反応**: 炎+草=燃焼、炎+水=蒸発など、元素を組み合わせて強力な反応を起こす")
-        st.write("- 💎 **エネルギーシステム**: 毎ターン5エネルギーで複数のカードを使用可能")
-        st.write("- 🗑️ **手札破棄**: ターン終了時、使わなかったカードは破棄されます")
-        st.write("- 💔 **サバイバル**: HPは戦闘をまたいで引き継がれます。慎重に立ち回りましょう")
-        st.write("- 🔼 **永続アップグレード**: ゲームオーバー後もアップグレードは残ります")
-        
-        st.write("---")
-        
+        total_wins = save_data.get("total_wins", 0)
+        highest_floor = save_data.get("highest_floor", 0)
+        upgrade_points = save_data.get("upgrade_points", 0)
+        total_games = save_data.get("total_games", 0)
+
+        # ========== タイトルバナー ==========
+        st.markdown("""
+        <div style="
+            text-align: center;
+            padding: 2.5rem 1rem 1.5rem;
+            position: relative;
+        ">
+            <div style="
+                font-size: 0.85rem;
+                letter-spacing: 0.4em;
+                color: rgba(255,200,80,0.8);
+                text-transform: uppercase;
+                margin-bottom: 0.5rem;
+                font-family: 'Courier New', monospace;
+            ">✦ ROGUELIKE CARD GAME ✦</div>
+            <div style="
+                font-size: 3.2rem;
+                font-weight: 900;
+                line-height: 1;
+                background: linear-gradient(135deg, #FFD700 0%, #FF8C00 40%, #FF4500 70%, #FFD700 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                text-shadow: none;
+                filter: drop-shadow(0 0 20px rgba(255,160,0,0.5));
+                margin-bottom: 0.3rem;
+                font-family: 'Arial Black', sans-serif;
+            ">⚔️ 異界迷宮</div>
+            <div style="
+                font-size: 1.1rem;
+                color: rgba(255,255,255,0.6);
+                letter-spacing: 0.15em;
+                font-family: 'Courier New', monospace;
+            ">DECK BUILDER · DUNGEON CRAWLER</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ========== 実績バー ==========
+        if total_games > 0:
+            st.markdown(f"""
+            <div style="
+                display: flex;
+                justify-content: center;
+                gap: 2rem;
+                padding: 0.8rem 1rem;
+                margin: 0 2rem 1.5rem;
+                background: rgba(255,255,255,0.04);
+                border: 1px solid rgba(255,200,80,0.2);
+                border-radius: 12px;
+                backdrop-filter: blur(10px);
+            ">
+                <div style="text-align:center;">
+                    <div style="font-size:1.6rem;font-weight:900;color:#FFD700;">{total_wins}</div>
+                    <div style="font-size:0.65rem;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">WINS</div>
+                </div>
+                <div style="width:1px;background:rgba(255,255,255,0.1);"></div>
+                <div style="text-align:center;">
+                    <div style="font-size:1.6rem;font-weight:900;color:#4ECDC4;">{highest_floor}</div>
+                    <div style="font-size:0.65rem;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">BEST FLOOR</div>
+                </div>
+                <div style="width:1px;background:rgba(255,255,255,0.1);"></div>
+                <div style="text-align:center;">
+                    <div style="font-size:1.6rem;font-weight:900;color:#FF6B6B;">{total_games}</div>
+                    <div style="font-size:0.65rem;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">PLAYS</div>
+                </div>
+                <div style="width:1px;background:rgba(255,255,255,0.1);"></div>
+                <div style="text-align:center;">
+                    <div style="font-size:1.6rem;font-weight:900;color:#95E77D;">💎{upgrade_points}</div>
+                    <div style="font-size:0.65rem;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">POINTS</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ========== 遊び方カード ==========
+        st.markdown("""
+        <div style="margin: 0 0.5rem 1.5rem;">
+            <div style="
+                font-size: 0.7rem;
+                letter-spacing: 0.3em;
+                color: rgba(255,200,80,0.7);
+                text-align: center;
+                margin-bottom: 0.8rem;
+                text-transform: uppercase;
+            ">— 遊び方 —</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;">
+
+                <div style="
+                    background: linear-gradient(135deg,rgba(255,107,107,0.15),rgba(255,107,107,0.05));
+                    border: 1px solid rgba(255,107,107,0.35);
+                    border-radius: 12px;
+                    padding: 1rem 0.8rem;
+                    text-align: center;
+                ">
+                    <div style="font-size:2rem;margin-bottom:0.4rem;">⚔️</div>
+                    <div style="font-size:0.85rem;font-weight:700;color:#FF6B6B;margin-bottom:0.4rem;">戦闘</div>
+                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
+                        毎ターン <b style="color:#FFD700;">エネルギー</b> が回復。<br>
+                        カードを使って敵を攻撃！<br>
+                        ターン終了で敵が反撃する。
+                    </div>
+                </div>
+
+                <div style="
+                    background: linear-gradient(135deg,rgba(78,205,196,0.15),rgba(78,205,196,0.05));
+                    border: 1px solid rgba(78,205,196,0.35);
+                    border-radius: 12px;
+                    padding: 1rem 0.8rem;
+                    text-align: center;
+                ">
+                    <div style="font-size:2rem;margin-bottom:0.4rem;">🎴</div>
+                    <div style="font-size:0.85rem;font-weight:700;color:#4ECDC4;margin-bottom:0.4rem;">デッキ強化</div>
+                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
+                        勝利後に <b style="color:#FFD700;">カード獲得</b>。<br>
+                        休憩所・ショップでも<br>
+                        デッキを鍛えよう。
+                    </div>
+                </div>
+
+                <div style="
+                    background: linear-gradient(135deg,rgba(149,231,125,0.15),rgba(149,231,125,0.05));
+                    border: 1px solid rgba(149,231,125,0.35);
+                    border-radius: 12px;
+                    padding: 1rem 0.8rem;
+                    text-align: center;
+                ">
+                    <div style="font-size:2rem;margin-bottom:0.4rem;">⚡</div>
+                    <div style="font-size:0.85rem;font-weight:700;color:#95E77D;margin-bottom:0.4rem;">元素反応</div>
+                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
+                        炎＋水＝<b style="color:#4ECDC4;">蒸発</b>（+30)<br>
+                        炎＋草＝<b style="color:#FF6B6B;">燃焼</b>（持続）<br>
+                        水＋草＝<b style="color:#95E77D;">成長</b>（回復）
+                    </div>
+                </div>
+
+                <div style="
+                    background: linear-gradient(135deg,rgba(180,100,220,0.15),rgba(180,100,220,0.05));
+                    border: 1px solid rgba(180,100,220,0.35);
+                    border-radius: 12px;
+                    padding: 1rem 0.8rem;
+                    text-align: center;
+                ">
+                    <div style="font-size:2rem;margin-bottom:0.4rem;">🗺️</div>
+                    <div style="font-size:0.85rem;font-weight:700;color:#C084FC;margin-bottom:0.4rem;">ルート選択</div>
+                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
+                        各階層で <b style="color:#FFD700;">2択の分岐</b>。<br>
+                        戦闘・休憩所・ショップ<br>
+                        を戦略的に選ぼう。
+                    </div>
+                </div>
+
+                <div style="
+                    background: linear-gradient(135deg,rgba(255,200,80,0.15),rgba(255,200,80,0.05));
+                    border: 1px solid rgba(255,200,80,0.35);
+                    border-radius: 12px;
+                    padding: 1rem 0.8rem;
+                    text-align: center;
+                ">
+                    <div style="font-size:2rem;margin-bottom:0.4rem;">❤️</div>
+                    <div style="font-size:0.85rem;font-weight:700;color:#FFD700;margin-bottom:0.4rem;">HP管理</div>
+                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
+                        HPは戦闘をまたいで<br>
+                        <b style="color:#FF6B6B;">引き継がれる</b>。<br>
+                        防御カードも使おう！
+                    </div>
+                </div>
+
+                <div style="
+                    background: linear-gradient(135deg,rgba(100,180,255,0.15),rgba(100,180,255,0.05));
+                    border: 1px solid rgba(100,180,255,0.35);
+                    border-radius: 12px;
+                    padding: 1rem 0.8rem;
+                    text-align: center;
+                ">
+                    <div style="font-size:2rem;margin-bottom:0.4rem;">🔼</div>
+                    <div style="font-size:0.85rem;font-weight:700;color:#60CDFF;margin-bottom:0.4rem;">永続強化</div>
+                    <div style="font-size:0.7rem;color:rgba(255,255,255,0.7);line-height:1.5;">
+                        ゲームオーバーでも<br>
+                        <b style="color:#FFD700;">アップグレードは残る</b>。<br>
+                        周回して強くなろう！
+                    </div>
+                </div>
+
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ========== 攻略ポイント ==========
+        st.markdown("""
+        <div style="
+            margin: 0 0.5rem 1.2rem;
+            padding: 0.8rem 1rem;
+            background: linear-gradient(135deg,rgba(255,200,80,0.08),rgba(255,140,0,0.05));
+            border: 1px solid rgba(255,200,80,0.25);
+            border-left: 3px solid #FFD700;
+            border-radius: 8px;
+        ">
+            <div style="font-size:0.75rem;font-weight:700;color:#FFD700;margin-bottom:0.5rem;">💡 攻略のコツ</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem 1rem;">
+                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ 序盤は <b>防御カード</b> を優先してHPを温存</div>
+                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ 元素カードを揃えると <b>反応コンボ</b> が強力</div>
+                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ 不要カードは削除して <b>デッキを薄く</b> する</div>
+                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ 休憩所は <b>HP全回復</b> が最も安定した選択肢</div>
+                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ バフ中に <b>高コスト攻撃</b> を集中させると効率的</div>
+                <div style="font-size:0.68rem;color:rgba(255,255,255,0.75);">▶ ボスが近い階層では <b>ショップ</b> でHP回復を買おう</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
         col_start, col_upgrade = st.columns(2)
         
         with col_start:
             if st.button("🎮 ゲーム開始", use_container_width=True, type="primary"):
-                print(f"\n[DEBUG] ===== GAME START =====")
                 # 初回プレイかチェック
                 save_data = st.session_state.persistent_data
                 is_first_time = save_data.get("total_games", 0) == 0
@@ -877,7 +1238,6 @@ def main():
                 energy_bonus = game_data.get_total_effect(save_data, "starting_energy_bonus")
                 draw_bonus = game_data.get_total_effect(save_data, "card_draw_bonus")
                 
-                print(f"[DEBUG] Bonuses: HP+{hp_bonus}, Energy+{energy_bonus}, Draw+{draw_bonus}")
                 
                 # プレイヤー初期化
                 starter_deck = create_starter_deck()
@@ -888,6 +1248,7 @@ def main():
                 st.session_state.shield = 0
                 st.session_state.attack_buff = 0
                 st.session_state.attack_buff_duration = 0
+                st.session_state.rest_attack_buff = 0  # 休憩所バフ（次の1戦限り）
                 st.session_state.deck = starter_deck
                 st.session_state.hand = []
                 st.session_state.discard = []
@@ -914,7 +1275,6 @@ def main():
                 st.session_state.floor_nodes = nodes
                 st.session_state.current_node_id = root_id
                 
-                print(f"[DEBUG] Floor tree generated: {len(nodes)} nodes, root={root_id}")
                 
                 # 最初のノードで初期化
                 root_node = nodes[root_id]
@@ -923,8 +1283,6 @@ def main():
                 # 第1階層の戦闘を開始
                 setup_battle_from_node(root_node)
                 st.session_state.game_state = 'battle'
-                print(f"[DEBUG] Starting floor 1 battle against {root_node.enemy_name}")
-                print(f"[DEBUG] Initial state set to 'battle'\n")
                 st.rerun()
         
         with col_upgrade:
@@ -934,22 +1292,24 @@ def main():
     
     elif st.session_state.game_state == 'tree_selection':
         """ツリーから次の階層を選択"""
-        print(f"\n[DEBUG] ===== SCREEN: TREE_SELECTION =====")
         nodes = st.session_state.floor_nodes
         current_node_id = st.session_state.current_node_id
         current_node = nodes[current_node_id]
         
-        print(f"[DEBUG] Current node: {current_node_id} (Floor {current_node.floor_level})")
         
-        st.set_page_config(page_title="デッキ構築RPG", page_icon="⚔️", layout="wide")
         st.markdown(styles.COMPACT_CSS, unsafe_allow_html=True)
         
         # タイトル
+        # 次の階層番号を計算（選択肢は current_node の子 = 次の階層）
+        next_floor = current_node.floor_level + 1
         st.markdown(f"""
         <div style='text-align: center; margin-bottom: 20px;'>
             <h2 style='color: white; font-size: 1.5rem; margin: 0; text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);'>
-                🌳 第{current_node.floor_level}階層 - 道を選ぼう
+                🌳 第{next_floor}階層への道を選ぼう
             </h2>
+            <div style='color: rgba(255,255,255,0.5); font-size:0.85rem; margin-top:4px;'>
+                現在: 第{current_node.floor_level}階層 クリア済み
+            </div>
         </div>
         """, unsafe_allow_html=True)
         
@@ -961,9 +1321,17 @@ def main():
             st.metric("🎴 デッキ", f"{len(st.session_state.all_cards)}枚")
         with col3:
             # エネルギーを5つのバーで表示
-            energy_html = render_energy_bars(st.session_state.max_energy, st.session_state.max_energy)
+            energy_html = render_energy_bars(st.session_state.energy, st.session_state.max_energy)
             st.markdown(energy_html, unsafe_allow_html=True)
-        
+
+        # 休憩バフ・戦闘バフ中なら表示
+        rest_buff = st.session_state.get('rest_attack_buff', 0)
+        active_buff = st.session_state.attack_buff_duration >= 999
+        if rest_buff > 0:
+            st.info(f"💪 次の戦闘: 攻撃力+{int(rest_buff*100)}%（この戦闘限り）")
+        elif active_buff:
+            st.info(f"💪 戦闘バフ継続中: 攻撃力+{int(st.session_state.attack_buff*100)}%（この戦闘限り）")
+
         st.write("---")
         
         # ツリー表示（常時展開）
@@ -982,13 +1350,11 @@ def main():
         # 選択肢
         left_child, right_child = floor_tree.get_node_children(nodes, current_node_id)
         
-        print(f"[DEBUG] Choices: L={left_child.node_id if left_child else 'None'}, R={right_child.node_id if right_child else 'None'}")
         
         if left_child or right_child:
             # 左右が同じノード = 1択
             is_single_choice = (left_child and right_child and left_child.node_id == right_child.node_id)
             
-            print(f"[DEBUG] Single choice: {is_single_choice}")
             
             if is_single_choice:
                 st.markdown("<h3 style='text-align: center;'>次の階層へ進む</h3>", unsafe_allow_html=True)
@@ -998,11 +1364,11 @@ def main():
                 with col_center:
                     node = left_child
                     if node.node_type == "battle":
-                        st.markdown(f"## ⚔️ {node.enemy_name}\n難易度: {'★' * node.difficulty}")
+                        st.markdown(f"## ⚔️ {node.enemy_name}\n**第{node.floor_level}階層** | 難易度: {'★' * node.difficulty}")
                     elif node.node_type == "rest":
-                        st.markdown("## 🏘️ 休憩所\nHP回復 + バフ")
+                        st.markdown(f"## 🏘️ 休憩所\n**第{node.floor_level}階層** | HP回復 + バフ")
                     else:
-                        st.markdown("## 🛍️ ショップ\nカード購入/売却")
+                        st.markdown(f"## 🛍️ ショップ\n**第{node.floor_level}階層** | カード購入/売却")
                     
                     if st.button("→ 進む", key="choose_only", use_container_width=True, type="primary"):
                         st.session_state.current_node_id = node.node_id
@@ -1022,53 +1388,41 @@ def main():
                 if left_child:
                     with col_left:
                         if left_child.node_type == "battle":
-                            st.markdown(f"## ⚔️ {left_child.enemy_name}\n難易度: {'★' * left_child.difficulty}")
+                            st.markdown(f"## ⚔️ {left_child.enemy_name}\n**第{left_child.floor_level}階層** | 難易度: {'★' * left_child.difficulty}")
                         elif left_child.node_type == "rest":
-                            st.markdown("## 🏘️ 休憩所\nHP回復 + バフ")
+                            st.markdown(f"## 🏘️ 休憩所\n**第{left_child.floor_level}階層** | HP回復 + バフ")
                         else:
-                            st.markdown("## 🛍️ ショップ\nカード購入/売却")
+                            st.markdown(f"## 🛍️ ショップ\n**第{left_child.floor_level}階層** | カード購入/売却")
                         
                         if st.button("← 選択", key="choose_left", use_container_width=True, type="primary"):
-                            print(f"\n[DEBUG] ===== LEFT CHOICE SELECTED =====")
-                            print(f"[DEBUG] Node: {left_child.node_id} (Floor {left_child.floor_level})")
-                            print(f"[DEBUG] Type: {left_child.node_type}")
                             st.session_state.current_node_id = left_child.node_id
                             if left_child.node_type == "battle":
                                 setup_battle_from_node(left_child)
                                 st.session_state.game_state = 'battle'
-                                print(f"[DEBUG] -> State set to 'battle'\n")
                             elif left_child.node_type == "rest":
                                 st.session_state.game_state = 'rest'
-                                print(f"[DEBUG] -> State set to 'rest'\n")
                             else:
                                 st.session_state.game_state = 'shop'
-                                print(f"[DEBUG] -> State set to 'shop'\n")
                             st.rerun()
                 
                 if right_child:
                     with col_right:
                         if right_child.node_type == "battle":
-                            st.markdown(f"## ⚔️ {right_child.enemy_name}\n難易度: {'★' * right_child.difficulty}")
+                            st.markdown(f"## ⚔️ {right_child.enemy_name}\n**第{right_child.floor_level}階層** | 難易度: {'★' * right_child.difficulty}")
                         elif right_child.node_type == "rest":
-                            st.markdown("## 🏘️ 休憩所\nHP回復 + バフ")
+                            st.markdown(f"## 🏘️ 休憩所\n**第{right_child.floor_level}階層** | HP回復 + バフ")
                         else:
-                            st.markdown("## 🛍️ ショップ\nカード購入/売却")
+                            st.markdown(f"## 🛍️ ショップ\n**第{right_child.floor_level}階層** | カード購入/売却")
                         
                         if st.button("選択 →", key="choose_right", use_container_width=True, type="primary"):
-                            print(f"\n[DEBUG] ===== RIGHT CHOICE SELECTED =====")
-                            print(f"[DEBUG] Node: {right_child.node_id} (Floor {right_child.floor_level})")
-                            print(f"[DEBUG] Type: {right_child.node_type}")
                             st.session_state.current_node_id = right_child.node_id
                             if right_child.node_type == "battle":
                                 setup_battle_from_node(right_child)
                                 st.session_state.game_state = 'battle'
-                                print(f"[DEBUG] -> State set to 'battle'\n")
                             elif right_child.node_type == "rest":
                                 st.session_state.game_state = 'rest'
-                                print(f"[DEBUG] -> State set to 'rest'\n")
                             else:
                                 st.session_state.game_state = 'shop'
-                                print(f"[DEBUG] -> State set to 'shop'\n")
                             st.rerun()
         else:
             if current_node.floor_level == 10:
@@ -1090,41 +1444,196 @@ def main():
         return
     
     elif st.session_state.game_state == 'rest':
-        st.title("🏘️ 休憩所")
-        
+        current_node = st.session_state.floor_nodes.get(st.session_state.current_node_id)
+        floor_level = current_node.floor_level if current_node else "?"
+
+        hp = st.session_state.player_hp
+        max_hp = st.session_state.player_max_hp
+        hp_pct = int(hp / max_hp * 100)
+        deck_size = len(st.session_state.all_cards)
+        gold = st.session_state.get('gold', 0)
+        energy = st.session_state.energy
+        max_energy = st.session_state.max_energy
+        rest_buff = st.session_state.get('rest_attack_buff', 0)
+
+        # HP割合に応じた色
+        if hp_pct >= 70:
+            hp_color = "#4ade80"
+        elif hp_pct >= 40:
+            hp_color = "#fbbf24"
+        else:
+            hp_color = "#f87171"
+
+        st.markdown(f"""
+        <div style="
+            text-align: center;
+            padding: 1.2rem 1rem 0.5rem;
+        ">
+            <div style="font-size:0.7rem;letter-spacing:0.3em;color:rgba(149,231,125,0.7);text-transform:uppercase;margin-bottom:0.3rem;">
+                第{floor_level}階層
+            </div>
+            <div style="font-size:2.2rem;font-weight:900;color:#95E77D;filter:drop-shadow(0 0 12px rgba(149,231,125,0.4));margin-bottom:0.2rem;">
+                🏘️ 休憩所
+            </div>
+            <div style="font-size:0.8rem;color:rgba(255,255,255,0.5);">束の間の安らぎ。次の戦いに備えよ。</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ===== プレイヤーステータスパネル =====
+        st.markdown(f"""
+        <div style="
+            margin: 0.8rem 0.5rem 1rem;
+            padding: 1rem 1.2rem;
+            background: linear-gradient(135deg,rgba(20,30,20,0.9),rgba(15,25,15,0.9));
+            border: 1px solid rgba(149,231,125,0.25);
+            border-radius: 14px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(149,231,125,0.1);
+        ">
+            <div style="font-size:0.65rem;letter-spacing:0.25em;color:rgba(149,231,125,0.6);margin-bottom:0.8rem;text-transform:uppercase;">
+                ▌ プレイヤーステータス
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.8rem;align-items:center;">
+
+                <div>
+                    <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);margin-bottom:0.2rem;">❤️ HP</div>
+                    <div style="font-size:1.3rem;font-weight:900;color:{hp_color};">{hp}</div>
+                    <div style="font-size:0.6rem;color:rgba(255,255,255,0.4);">/ {max_hp}</div>
+                    <div style="margin-top:0.3rem;height:5px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden;">
+                        <div style="width:{hp_pct}%;height:100%;background:{hp_color};border-radius:3px;
+                            box-shadow:0 0 8px {hp_color};transition:width 0.5s;"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);margin-bottom:0.2rem;">⚡ エネルギー</div>
+                    <div style="font-size:1.3rem;font-weight:900;color:#6ECDC4;">{energy}</div>
+                    <div style="font-size:0.6rem;color:rgba(255,255,255,0.4);">/ {max_energy}</div>
+                </div>
+
+                <div>
+                    <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);margin-bottom:0.2rem;">🎴 デッキ</div>
+                    <div style="font-size:1.3rem;font-weight:900;color:#C084FC;">{deck_size}<span style="font-size:0.7rem;font-weight:400;color:rgba(255,255,255,0.4);"> 枚</span></div>
+                </div>
+
+                <div>
+                    <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);margin-bottom:0.2rem;">💰 ゴールド</div>
+                    <div style="font-size:1.3rem;font-weight:900;color:#FFD700;">{gold}<span style="font-size:0.7rem;font-weight:400;color:rgba(255,255,255,0.4);"> G</span></div>
+                </div>
+
+            </div>
+            {"<div style='margin-top:0.8rem;padding:0.5rem 0.7rem;background:rgba(255,200,80,0.1);border:1px solid rgba(255,200,80,0.3);border-radius:8px;font-size:0.7rem;color:#FFD700;'>💪 瞑想バフ待機中: 次の戦闘中ずっと攻撃力+"+str(int(rest_buff*100))+"%</div>" if rest_buff > 0 else ""}
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ===== 選択カード 3択 =====
+        st.markdown("""
+        <div style="font-size:0.7rem;letter-spacing:0.25em;color:rgba(255,255,255,0.4);text-align:center;margin-bottom:0.8rem;text-transform:uppercase;">
+            — どれか1つを選択 —
+        </div>
+        """, unsafe_allow_html=True)
+
         col1, col2, col3 = st.columns(3)
+
         with col1:
-            if st.button("🧘 瞑想 (+攻撃20%)", use_container_width=True, type="primary"):
-                st.session_state.attack_buff = 0.2
-                st.session_state.attack_buff_duration = 1
-                proceed_to_next_floor()
-                st.rerun()
-        with col2:
-            if st.button("😴 就寝 (HP全回復)", use_container_width=True, type="primary"):
+            hp_after = min(max_hp, hp + int(max_hp * 0.4))
+            heal_amt = hp_after - hp
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg,rgba(248,113,113,0.15),rgba(220,38,38,0.08));
+                border: 2px solid rgba(248,113,113,0.4);
+                border-radius: 14px;
+                padding: 1.2rem 0.8rem;
+                text-align: center;
+                margin-bottom: 0.5rem;
+                min-height: 160px;
+            ">
+                <div style="font-size:2.5rem;margin-bottom:0.5rem;">😴</div>
+                <div style="font-size:1rem;font-weight:800;color:#f87171;margin-bottom:0.3rem;">就寝</div>
+                <div style="font-size:0.7rem;color:rgba(255,255,255,0.6);line-height:1.5;margin-bottom:0.5rem;">
+                    HP を全回復する<br>
+                    <span style="color:#4ade80;font-weight:700;">+{heal_amt} HP回復</span><br>
+                    <span style="font-size:0.6rem;color:rgba(255,255,255,0.4);">{hp} → {hp_after} / {max_hp}</span>
+                </div>
+                <div style="font-size:0.6rem;color:rgba(255,255,255,0.35);">永続効果なし</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("😴 就寝して回復", key="rest_sleep", use_container_width=True, type="primary"):
                 st.session_state.player_hp = st.session_state.player_max_hp
                 proceed_to_next_floor()
                 st.rerun()
+
+        with col2:
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg,rgba(192,132,252,0.15),rgba(147,51,234,0.08));
+                border: 2px solid rgba(192,132,252,0.4);
+                border-radius: 14px;
+                padding: 1.2rem 0.8rem;
+                text-align: center;
+                margin-bottom: 0.5rem;
+                min-height: 160px;
+            ">
+                <div style="font-size:2.5rem;margin-bottom:0.5rem;">🧘</div>
+                <div style="font-size:1rem;font-weight:800;color:#C084FC;margin-bottom:0.3rem;">瞑想</div>
+                <div style="font-size:0.7rem;color:rgba(255,255,255,0.6);line-height:1.5;margin-bottom:0.5rem;">
+                    次の1戦、攻撃力アップ<br>
+                    <span style="color:#C084FC;font-weight:700;">攻撃力 +20%</span><br>
+                    <span style="font-size:0.6rem;color:rgba(255,255,255,0.4);">戦闘中ずっと有効</span>
+                </div>
+                <div style="font-size:0.6rem;color:rgba(255,200,80,0.6);">⚠️ 次の1戦のみ</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("🧘 瞑想する", key="rest_meditate", use_container_width=True, type="primary"):
+                st.session_state.rest_attack_buff = max(st.session_state.get('rest_attack_buff', 0), 0.2)
+                proceed_to_next_floor()
+                st.rerun()
+
         with col3:
-            if st.button("🧪 錬金術 (カード+10%)", use_container_width=True, type="primary"):
+            attack_cards = [c for c in st.session_state.all_cards if c.get('type') == CARD_ATTACK and 'damage' in c]
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg,rgba(251,191,36,0.15),rgba(180,130,0,0.08));
+                border: 2px solid rgba(251,191,36,0.4);
+                border-radius: 14px;
+                padding: 1.2rem 0.8rem;
+                text-align: center;
+                margin-bottom: 0.5rem;
+                min-height: 160px;
+            ">
+                <div style="font-size:2.5rem;margin-bottom:0.5rem;">🧪</div>
+                <div style="font-size:1rem;font-weight:800;color:#fbbf24;margin-bottom:0.3rem;">錬金術</div>
+                <div style="font-size:0.7rem;color:rgba(255,255,255,0.6);line-height:1.5;margin-bottom:0.5rem;">
+                    全攻撃カードを強化する<br>
+                    <span style="color:#fbbf24;font-weight:700;">攻撃力 +10%</span><br>
+                    <span style="font-size:0.6rem;color:rgba(255,255,255,0.4);">対象: {len(attack_cards)}枚</span>
+                </div>
+                <div style="font-size:0.6rem;color:#4ade80;">✅ 永続効果</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("🧪 錬金術を使う", key="rest_alchemy", use_container_width=True, type="primary"):
                 for card in st.session_state.all_cards:
                     if card.get('type') == CARD_ATTACK and 'damage' in card:
                         card['damage'] = int(card['damage'] * 1.1)
                 proceed_to_next_floor()
                 st.rerun()
+
         return
-    
+
     elif st.session_state.game_state == 'shop':
-        print(f"\n[DEBUG] ===== SCREEN: SHOP =====")
         st.title("🛍️ ショップ")
         st.write(f"💰 所持ゴールド: **{st.session_state.get('gold', 0)}G**")
-        
-        # ショップのカードリスト（ランダムに5枚生成）
-        if 'shop_cards' not in st.session_state:
+
+        # P1-6: shop_cardsはshop画面に入ったときだけ初期化（ノードIDをキーに紐付け）
+        shop_node_id = st.session_state.current_node_id
+        if 'shop_cards' not in st.session_state or st.session_state.get('shop_node_id') != shop_node_id:
             all_cards = create_basic_cards()
             st.session_state.shop_cards = random.sample(all_cards, min(5, len(all_cards)))
-            # 各カードに価格を設定
+            st.session_state.shop_node_id = shop_node_id
+            # 各カードに価格を設定（難易度に応じて価格調整）
+            current_node = st.session_state.floor_nodes.get(st.session_state.current_node_id)
+            floor_bonus = (current_node.floor_level * 5) if current_node else 0
             for card in st.session_state.shop_cards:
-                card['shop_price'] = 50 + random.randint(0, 30)
+                card['shop_price'] = 40 + floor_bonus + random.randint(0, 20)
         
         st.write("### 🎴 カード販売")
         cols = st.columns(5)
@@ -1222,7 +1731,6 @@ def main():
         
         st.write("---")
         if st.button("進む →", use_container_width=True, type="primary"):
-            print(f"\n[DEBUG] ===== SHOP: PROCEED BUTTON =====")
             if 'shop_cards' in st.session_state:
                 del st.session_state.shop_cards
             proceed_to_next_floor()
@@ -1606,7 +2114,10 @@ def main():
             
             if st.session_state.attack_buff_duration > 0:
                 buff_percent = int(st.session_state.attack_buff * 100)
-                status_parts.append(f"💪+{buff_percent}% ({st.session_state.attack_buff_duration}T)")
+                if st.session_state.attack_buff_duration >= 999:
+                    status_parts.append(f"💪+{buff_percent}% (この戦闘限り)")
+                else:
+                    status_parts.append(f"💪+{buff_percent}% ({st.session_state.attack_buff_duration}T)")
             
             if status_parts:
                 st.caption(" | ".join(status_parts))
@@ -1686,20 +2197,31 @@ def main():
                     enemy_status += f" {emoji}×{st.session_state.enemy['element_duration']}T"
                 else:
                     enemy_status += f" {emoji}"
-            
+
             # 燃焼状態（持続ターン表示）
             if st.session_state.enemy["burn_duration"] > 0:
                 enemy_status += f" 🔥×{st.session_state.enemy['burn_duration']}T"
-            
+
+            # デバフ状態表示
+            if st.session_state.enemy.get("poison_duration", 0) > 0:
+                enemy_status += f" ☠️×{st.session_state.enemy['poison_duration']}T"
+            if st.session_state.enemy.get("debuff_weaken_duration", 0) > 0:
+                weaken_pct = int(st.session_state.enemy.get("debuff_weaken", 0) * 100)
+                enemy_status += f" ⬇️-{weaken_pct}%×{st.session_state.enemy['debuff_weaken_duration']}T"
+            if st.session_state.enemy.get("stunned", False):
+                enemy_status += " 💫スタン"
+
             st.caption(enemy_status)
         
         # 勝敗判定  敵を倒した場合
         if st.session_state.enemy["hp"] <= 0:
             st.session_state.show_effect = False
-            # 勝利画面に遷移（報酬選択はそこで行う）
             st.session_state.game_state = 'victory'
-            # ゴールド獲得（victory状態で表示）
-            gold_earned = 20 + st.session_state.turn * 5
+            # P2-9: ゴールド報酬を難易度ベースに調整（floor_levelと敵難易度を参照）
+            current_node = st.session_state.floor_nodes.get(st.session_state.current_node_id)
+            floor_level = current_node.floor_level if current_node else st.session_state.turn
+            difficulty = current_node.difficulty if current_node else 1
+            gold_earned = 15 + floor_level * 8 + difficulty * 3 + random.randint(0, 10)
             st.session_state.prev_gold = st.session_state.get('gold', 0)
             st.session_state.gold = st.session_state.prev_gold + gold_earned
             st.rerun()
@@ -1710,7 +2232,7 @@ def main():
             st.error("💀 敗北")
             
             save_data = st.session_state.persistent_data
-            floor_reached = st.session_state.turn
+            floor_reached = st.session_state.get('current_floor', st.session_state.turn)
             updated_data = game_data.record_game_result(save_data, won=False, floor_reached=floor_reached)
             st.session_state.persistent_data = updated_data
             game_data.save_game_data(updated_data)
@@ -1730,13 +2252,18 @@ def main():
             return
         
         # 中央：手札（横1列・コンパクト）
+        # エネルギーを描画前にクランプして不整合を防ぐ
+        st.session_state.energy = max(0, min(st.session_state.energy, st.session_state.max_energy))
+
         if len(st.session_state.hand) == 0:
             st.caption("手札なし")
         else:
             cols = st.columns(len(st.session_state.hand))
+            card_played = False  # 1ループで1枚だけ使えるようにするフラグ
             for i, card in enumerate(st.session_state.hand):
                 with cols[i]:
-                    if display_card_compact(card, "hand", i):
+                    if display_card_compact(card, "hand", i) and not card_played:
+                        card_played = True
                         st.session_state.current_turn_log = []
                         log_before = len(st.session_state.battle_log)
                         play_card(i)
@@ -1796,26 +2323,26 @@ def main():
                     st.caption(f"{name} × {count}")
         
         with info_col2:
-            with st.expander("⚡ 元素反応ガイド"):
+            with st.expander("⚡ 元素反応＆デバフガイド"):
                 st.markdown("""
                 <div style='font-size: 0.8rem;'>
-                    <div style='background: rgba(255, 107, 107, 0.3); padding: 8px; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid #FF6B6B;'>
-                        <strong>🔥 燃焼</strong><br>
-                        🔥 炎 + 🌿 草<br>
-                        追加+12 | 持続10×3ターン
+                    <div style='background: rgba(255, 107, 107, 0.3); padding: 8px; border-radius: 6px; margin-bottom: 6px; border-left: 3px solid #FF6B6B;'>
+                        <strong>🔥 燃焼</strong> 炎 + 草: 追加+12 | 持続10×3T
                     </div>
-                    <div style='background: rgba(78, 205, 196, 0.3); padding: 8px; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid #4ECDC4;'>
-                        <strong>💧 蒸発</strong><br>
-                        🔥 炎 + 💧 水<br>
-                        追加+30 高威力！
+                    <div style='background: rgba(78, 205, 196, 0.3); padding: 8px; border-radius: 6px; margin-bottom: 6px; border-left: 3px solid #4ECDC4;'>
+                        <strong>💧 蒸発</strong> 炎 + 水: 追加+30 高威力！
                     </div>
-                    <div style='background: rgba(149, 231, 125, 0.3); padding: 8px; border-radius: 6px; border-left: 3px solid #95E77D;'>
-                        <strong>🌿 成長</strong><br>
-                        💧 水 + 🌿 草<br>
-                        追加+25 | HP回復12%
+                    <div style='background: rgba(149, 231, 125, 0.3); padding: 8px; border-radius: 6px; margin-bottom: 6px; border-left: 3px solid #95E77D;'>
+                        <strong>🌿 成長</strong> 水 + 草: 追加+25 | HP回復12%
                     </div>
-                    <p style='margin-top: 10px; font-size: 0.75rem; color: rgba(255,255,255,0.7);'>
-                        💡 敵に元素付与→別元素で攻撃<br>
+                    <div style='background: rgba(180, 100, 220, 0.3); padding: 8px; border-radius: 6px; margin-bottom: 4px; border-left: 3px solid #b464dc;'>
+                        <strong>💀 デバフカード</strong><br>
+                        ⬇️ 弱体化: 敵攻撃力ダウン<br>
+                        💫 スタン: 1T行動不能<br>
+                        ☠️ 毒: 毎T継続ダメージ<br>
+                        ❄️ 氷結: 弱体化 + 水付与
+                    </div>
+                    <p style='margin-top: 6px; font-size: 0.75rem; color: rgba(255,255,255,0.7);'>
                         ⏳ 反応後1ターンは元素付着不可
                     </p>
                 </div>
@@ -1906,7 +2433,6 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
                 if st.button("✨ カード獲得", key="choose_card", use_container_width=True, type="primary"):
-                    print(f"\n[DEBUG] ===== REWARD: CARD SELECTED =====")
                     st.session_state.reward_choice = 'card'
                     st.rerun()
             
@@ -1953,46 +2479,46 @@ def main():
                     st.rerun()
             return
         
-        # カード獲得画面
+        # カード獲得画面（P0-2: 報酬カードをセッションキャッシュ化）
         elif st.session_state.reward_choice == 'card':
-            all_cards = create_basic_cards()
-            reward_cards = random.sample(all_cards, min(3, len(all_cards)))
-            
+            if 'reward_cards_cache' not in st.session_state:
+                all_cards = create_basic_cards()
+                st.session_state.reward_cards_cache = random.sample(all_cards, min(3, len(all_cards)))
+            reward_cards = st.session_state.reward_cards_cache
+
             st.write("### ✨ カードを1枚選択")
             cols = st.columns(3)
             for i, card in enumerate(reward_cards):
                 with cols[i]:
                     display_card_reward(card, i)
-                    
+
                     if st.button(f"✨ 獲得", key=f"get_reward_{i}", use_container_width=True, type="primary"):
-                        print(f"\n[DEBUG] ===== CARD ACQUIRED =====")
-                        print(f"[DEBUG] Card: {card['name']}")
                         st.session_state.all_cards.append(card)
                         st.session_state.reward_choice = None
+                        if 'reward_cards_cache' in st.session_state:
+                            del st.session_state.reward_cards_cache
                         proceed_to_next_floor()
                         st.rerun()
             return
-        
-        # カード削除画面
+
+        # カード削除画面（P0-3: インデントバグ修正）
         elif st.session_state.reward_choice == 'delete':
             st.write("### 🗑️ 削除するカードを選択（最大2枚）")
             st.caption(f"現在のデッキ: {len(st.session_state.all_cards)}枚 | 選択中: {len(st.session_state.cards_to_delete)}/2枚")
-            
-            # カードを種類ごとにグループ化
+
             card_groups = {}
             for card in st.session_state.all_cards:
                 name = card['name']
                 if name not in card_groups:
                     card_groups[name] = []
                 card_groups[name].append(card)
-            
-            # カード選択UI
+
             for name, cards in sorted(card_groups.items()):
                 cols = st.columns([3, 1])
                 with cols[0]:
                     st.write(f"**{name}** × {len(cards)}")
                 with cols[1]:
-                    card_id = id(cards[0])  # カードのユニークID
+                    card_id = id(cards[0])
                     if card_id in st.session_state.cards_to_delete:
                         if st.button("✅ 選択中", key=f"unselect_{card_id}", use_container_width=True):
                             st.session_state.cards_to_delete.remove(card_id)
@@ -2002,37 +2528,34 @@ def main():
                         if st.button("🗑️ 選択", key=f"select_{card_id}", use_container_width=True, disabled=disabled):
                             st.session_state.cards_to_delete.append(card_id)
                             st.rerun()
-            
+
             if len(st.session_state.all_cards) <= 10:
                 st.warning("⚠️ デッキは最低10枚必要です")
-            
+
             st.write("---")
             col_cancel, col_confirm = st.columns(2)
-            
+
             with col_cancel:
                 if st.button("❌ キャンセル", use_container_width=True):
                     st.session_state.reward_choice = None
                     st.session_state.cards_to_delete = []
                     st.rerun()
-                
-                with col_confirm:
-                    if st.button(f"🗑️ {len(st.session_state.cards_to_delete)}枚削除して次へ", 
-                                use_container_width=True, 
-                                type="primary",
-                                disabled=len(st.session_state.cards_to_delete) == 0):
-                        # 選択されたカードを削除
-                        for card_id in st.session_state.cards_to_delete:
-                            for card in st.session_state.all_cards:
-                                if id(card) == card_id:
-                                    st.session_state.all_cards.remove(card)
-                                    break
-                        
-                        st.session_state.cards_to_delete = []
-                        st.session_state.reward_choice = None
-                        # 次の階層へ
-                        proceed_to_next_floor()
-                        st.rerun()
-            
+
+            with col_confirm:
+                if st.button(f"🗑️ {len(st.session_state.cards_to_delete)}枚削除して次へ",
+                             use_container_width=True,
+                             type="primary",
+                             disabled=len(st.session_state.cards_to_delete) == 0):
+                    for card_id in st.session_state.cards_to_delete:
+                        for card in st.session_state.all_cards:
+                            if id(card) == card_id:
+                                st.session_state.all_cards.remove(card)
+                                break
+                    st.session_state.cards_to_delete = []
+                    st.session_state.reward_choice = None
+                    proceed_to_next_floor()
+                    st.rerun()
+
             return
 
 if __name__ == "__main__":
