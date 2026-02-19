@@ -1,9 +1,10 @@
 {
-  "max_hp_bonus": 1,
-  "starting_energy_bonus": 2,
+  "max_hp_bonus": 0,
+  "starting_energy_bonus": 0,
   "card_draw_bonus": 0,
-  "total_wins": 2,
-  "highest_floor": 10,
-  "total_games": 72,
+  "total_wins": 0,
+  "highest_floor": 0,
+  "total_games": 0,
   "upgrade_points": 0
+
 }
